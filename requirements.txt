@@ -1,0 +1,19 @@
+pytorch-lightning 
+torch
+torchvision
+
+# config hydra 
+hydra-core
+
+# for cross validation
+scikit-learn
+
+opencv-python
+
+pytorchvideo
+seaborn
+matplotlib
+
+tensorboard
+rich
+transformers>=4.56.0
