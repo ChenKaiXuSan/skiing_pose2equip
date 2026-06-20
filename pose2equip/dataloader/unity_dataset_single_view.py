@@ -31,7 +31,6 @@ import re
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple, cast
 
-import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -103,6 +102,14 @@ class LabeledUnityDataset(Dataset):
     @staticmethod
     def _load_frames_dir(path: Path) -> torch.Tensor:
         """Load image sequence directory into (T,C,H,W)."""
+        try:
+            import cv2
+        except ImportError as exc:
+            raise ImportError(
+                "cv2 is required only when loading RGB frames. Install opencv-python "
+                "or set data.load_frames=false for skeleton-only experiments."
+            ) from exc
+
         if not path.exists() or not path.is_dir():
             raise FileNotFoundError(f"Frame directory not found: {path}")
 

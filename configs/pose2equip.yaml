@@ -10,23 +10,6 @@ loss:
   lr: 0.001
   weight_decay: 0.01
 
-cross_validation:
-  # 生成 index mapping 的配置（用于 cross_validation/generate_cv_index.py）
-  num_persons: 2
-  num_actions: 12
-  num_cameras: 108
-  strategies: [by_action]
-  n_splits: 5
-  force_recreate: false
-  use_layer_camera_filter: true
-  selected_layers: [0, 1, 2, 3, 4]
-  selected_cameras_per_layer: # 隔90度选择一个摄像头，确保每层都有覆盖
-    0: [0, 90, 180, 270]
-    1: [0, 90, 180, 270]
-    2: [0, 90, 180, 270]
-    3: [0, 90, 180, 270]
-    4: [0, 90, 180, 270]
-
 data:
   raw:
     root_path: /home/kaixu_chen/skiing/data
@@ -42,23 +25,25 @@ data:
 
   index_mapping: ${data.unity.root_path}/index_mapping # precomputed index mapping directory
   # index_mapping_file: camera_pairs_by_action.json # precomputed index mapping json file name
-  index_mapping_path: ${data.index_mapping}/use_layer_camera_filter_disabled/camera_pairs_by_action_folds # precomputed index mapping json file path
+  index_mapping_path: ${data.index_mapping}/use_layer_camera_filter_disabled/camera_pairs_by_action_folds # must match existing generated fold files
   sam3d_export_path: ${data.unity.root_path}/sam3d_body_results/modalities_from_sam3d # exported kpt2d/kpt3d from SAM3D
 
   img_size: 224
 
-  load_frames: true # whether to load video frames
+  load_frames: false # stgcn only needs 3D keypoints; set true for pose2equip/3dcnn
   load_2d_kpt: false # whether to load 2d keypoints
   load_3d_kpt: true
   load_mask: false
+  human_3d_source: unity # unity | sam3d; selects body input for equipment models
+  sam3d_human_key: character_cam1 # key under batch["kpt3d_sam"] when human_3d_source=sam3d
 
   time_window: 16
 
   num_workers: 16
-  batch_size: 32
+  batch_size: 16
 
 model:
-  backbone: stgcn # pose2equip, stgcn, 3dcnn
+  backbone: stgcn # pose2equip, stgcn, mlp, tcn, skeleton_transformer, stgcn_query, 3dcnn
 
 train:
   # Training config
@@ -68,17 +53,27 @@ train:
   fold: 0 # the fold number for cross validation
 
 trainer:
+  accelerator: auto
+  devices: auto
+  test_ckpt_path: best
   limit_train_batches: null
   limit_val_batches: null
   limit_test_batches: null
   num_sanity_val_steps: 2
 
-# Used only when model.backbone=pose2equip
+# Shared model/loss settings for pose2equip and skeleton backbones
 pose2equip:
   num_joints: 15
   dino_model_name: facebook/dinov2-base
   dino_freeze: true
   dino_image_size: 224
+  hidden_dim: 256 # shared by pose and skeleton backbones
+  num_equip_kpts: 8
+  backbone_layers: 3
+  decoder_layers: 3
+  num_heads: 8
+  dropout: 0.1
+  tcn_kernel_size: 5
 
   loss_w_sym: 0.03
   loss_w_len_abs: 0.2
@@ -100,7 +95,15 @@ pose2equip:
   ski_gt_idx: [1, 2, 4, 5] # ski_l_front, ski_l_back, ski_r_front, ski_r_back
   pole_gt_idx: [0, 1, 2, 3] # pole_l_handle, pole_l_tip, pole_r_handle, pole_r_tip
 
-experiment: ${model.backbone} # the experiment name, used for log path
-log_path: logs/train_unity/${experiment}/${now:%Y-%m-%d}/fold_${train.fold}
+# Experiment identity. Override experiment_tag from CLI for a custom matrix cell name.
+experiment_tag: ${model.backbone}__pose-${data.human_3d_source}__h${pose2equip.hidden_dim}__bl${pose2equip.backbone_layers}__dl${pose2equip.decoder_layers}__heads${pose2equip.num_heads}__tw${data.time_window}__frames-${data.load_frames}
+experiment: ${experiment_tag}
+run_id: ${now:%Y%m%d-%H%M%S}
+log_path: logs/train_unity/${experiment_tag}/${run_id}/fold_${train.fold}
 
-# python -m project.main model.backbone=stgcn data.load_frames=false
+# python -m pose2equip.main model.backbone=stgcn data.load_frames=false
+# python -m pose2equip.main model.backbone=mlp data.load_frames=false
+# python -m pose2equip.main model.backbone=tcn data.load_frames=false
+# python -m pose2equip.main model.backbone=skeleton_transformer data.load_frames=false
+# python -m pose2equip.main model.backbone=stgcn_query data.load_frames=false
+# python -m pose2equip.main model.backbone=stgcn_query experiment_tag=stgcn_query_h256_layers3_seed42

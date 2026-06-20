@@ -20,11 +20,8 @@ Date      	By	Comments
 ----------	---	---------------------------------------------------------
 """
 
-import json
 import logging
 import os
-from pathlib import Path
-from typing import Dict, List
 
 import hydra
 from omegaconf import DictConfig
@@ -39,73 +36,26 @@ from pytorch_lightning.callbacks import (
 from pytorch_lightning.loggers import TensorBoardLogger
 
 from pose2equip.dataloader.data_loader import UnityDataModule
-from pose2equip.map_config import UnityDataConfig
-
-#####################################
-# select different experiment trainer
-#####################################
-# baseline
-from .trainer.train_pose2equip import Pose2EquipTrainer
-from .trainer.train_stgcn import Pose2Equip_STGCN_Trainer
-from .trainer.train_3dcnn import Res3DCNNTrainer
+from pose2equip.data_index import (
+    detect_available_folds,
+    load_fold_dataset_idx_from_fold_json,
+)
 
 logger = logging.getLogger(__name__)
 
-def _remap_unity_dataset_paths(value, unity_root: Path):
-    """Remap serialized Unity dataset paths to the configured local root."""
-    dataset_dirname = unity_root.name
-    if isinstance(value, str):
-        marker = f"/{dataset_dirname}/"
-        if marker in value:
-            suffix = value.split(marker, 1)[1]
-            return str(unity_root / suffix)
-        if value.endswith(f"/{dataset_dirname}"):
-            return str(unity_root)
-        return value
-    if isinstance(value, dict):
-        return {k: _remap_unity_dataset_paths(v, unity_root) for k, v in value.items()}
-    if isinstance(value, list):
-        return [_remap_unity_dataset_paths(v, unity_root) for v in value]
-    return value
+
+def resolve_trainer_device_kwargs(hparams: DictConfig) -> dict:
+    """Resolve Lightning accelerator/devices from config with CPU-friendly defaults."""
+    accelerator = str(getattr(hparams.trainer, "accelerator", "auto"))
+    devices = getattr(hparams.trainer, "devices", "auto")
+    if devices is None:
+        devices = "auto"
+    return {"accelerator": accelerator, "devices": devices}
 
 
-def load_fold_dataset_idx_from_fold_json(
-    config: DictConfig, fold: int
-) -> Dict[str, List[UnityDataConfig]]:
-    """加载指定fold的JSON文件
-
-    Args:
-        config: Hydra配置对象
-        fold: fold号 (0-4 for 5-fold, etc.)
-
-    Returns:
-        Dict[str, List[UnityDataConfig]]: {"train": [...], "val": [...], "test": [...]}
-    """
-
-    index_file_path = Path(str(config.data.index_mapping_path))
-
-    fold_file = index_file_path / f"fold_{fold:02d}.json"
-
-    with open(fold_file, "r", encoding="utf-8") as f:
-        fold_data = json.load(f)
-
-    fold_data.pop("_metadata", None)
-
-    dataset_idx: Dict[str, List[UnityDataConfig]] = {"train": [], "val": [], "test": []}
-
-    # 处理三种split
-    for split in ["train", "val", "test"]:
-        src_list = fold_data.get(split, [])
-        for item in src_list:
-            item = _remap_unity_dataset_paths(
-                item, Path(str(config.data.unity.root_path))
-            )
-            dataset_idx[split].append(UnityDataConfig.from_dict(item))
-
-    logger.info(
-        f"✓ Loaded fold {fold}: train={len(dataset_idx['train'])}, val={len(dataset_idx['val'])}, test={len(dataset_idx['test'])}"
-    )
-    return dataset_idx
+def resolve_test_ckpt_path(hparams: DictConfig):
+    """Return which checkpoint Lightning should use for test after fit."""
+    return getattr(hparams.trainer, "test_ckpt_path", "best")
 
 
 def train(hparams: DictConfig, dataset_idx, fold: int):
@@ -128,21 +78,37 @@ def train(hparams: DictConfig, dataset_idx, fold: int):
     ckpt_filename = "{epoch}-{val/loss:.2f}-{val/video_acc:.4f}"
 
     if hparams.model.backbone == "pose2equip":
-        classification_module = Pose2EquipTrainer(hparams)
+        from .trainer.train_pose2equip import Pose2EquipTrainer
+
+        lit_module = Pose2EquipTrainer(hparams)
         # pose2equip 当前验证阶段记录的是 val/mpjpe 与 val/loss。
         monitor_metric = "val/mpjpe"
         monitor_mode = "min"
         ckpt_filename = "{epoch}-{val/loss:.4f}-{val/mpjpe:.4f}"
     elif hparams.model.backbone == "stgcn":
-        classification_module = Pose2Equip_STGCN_Trainer(hparams)
+        from .trainer.train_stgcn import Pose2Equip_STGCN_Trainer
+
+        lit_module = Pose2Equip_STGCN_Trainer(hparams)
         # stgcn 当前验证阶段记录的是 val/mpjpe 与 val/loss。
         monitor_metric = "val/mpjpe"
         monitor_mode = "min"
         ckpt_filename = "{epoch}-{val/loss:.4f}-{val/mpjpe:.4f}"
+    elif hparams.model.backbone in {"mlp", "tcn", "skeleton_transformer", "stgcn_query"}:
+        from .trainer.train_skeleton_backbone import SkeletonBackboneTrainer
+
+        lit_module = SkeletonBackboneTrainer(hparams)
+        monitor_metric = "val/mpjpe"
+        monitor_mode = "min"
+        ckpt_filename = "{epoch}-{val/loss:.4f}-{val/mpjpe:.4f}"
     elif hparams.model.backbone == "3dcnn":
-        classification_module = Res3DCNNTrainer(hparams)
+        from .trainer.train_3dcnn import Res3DCNNTrainer
+
+        lit_module = Res3DCNNTrainer(hparams)
     else:
-        raise ValueError(f"Unsupported model.backbone={hparams.model.backbone}")
+        raise ValueError(
+            f"Unsupported model.backbone={hparams.model.backbone}. "
+            "Expected one of: pose2equip, stgcn, mlp, tcn, skeleton_transformer, stgcn_query, 3dcnn."
+        )
 
     # * prepare data module
     data_module = UnityDataModule(hparams, dataset_idx)
@@ -178,10 +144,7 @@ def train(hparams: DictConfig, dataset_idx, fold: int):
     lr_monitor = LearningRateMonitor(logging_interval="step")
 
     trainer = Trainer(
-        devices=[
-            int(hparams.train.gpu),
-        ],
-        accelerator="gpu",
+        **resolve_trainer_device_kwargs(hparams),
         max_epochs=hparams.train.max_epochs,
         logger=[tb_logger],
         check_val_every_n_epoch=1,
@@ -198,13 +161,13 @@ def train(hparams: DictConfig, dataset_idx, fold: int):
         num_sanity_val_steps=int(getattr(hparams.trainer, "num_sanity_val_steps", 2)),
     )
 
-    trainer.fit(classification_module, data_module)
+    trainer.fit(lit_module, data_module)
 
     # save the metrics to file
     trainer.test(
-        classification_module,
+        lit_module,
         data_module,
-        ckpt_path=None,
+        ckpt_path=resolve_test_ckpt_path(hparams),
     )
 
 
@@ -221,7 +184,7 @@ def init_params(config):
     requested_fold = int(config.train.fold)
 
     # 检测可用的fold数量
-    available_folds = _detect_available_folds(config)
+    available_folds = detect_available_folds(config)
 
     # train.fold >= 0: run only the specified fold (recommended for multi-node jobs)
     # train.fold < 0: run all folds sequentially (backward compatible mode)
@@ -265,22 +228,6 @@ def init_params(config):
     logger.info("finish train folds: %s", target_folds)
     logger.info("#" * 50)
 
-
-def _detect_available_folds(config: DictConfig) -> List[int]:
-    """检测可用的fold文件数量"""
-    index_file_path = Path(str(config.data.index_mapping_path))
-
-    # 查找所有fold_XX.json文件
-    fold_files = sorted(index_file_path.glob("fold_*.json"))
-
-    available_folds = []
-    for fold_file in fold_files:
-        # 从fold_00.json提取00并转为int
-        match = fold_file.stem.replace("fold_", "")
-        fold_num = int(match)
-        available_folds.append(fold_num)
-
-    return sorted(available_folds)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@
 import torch
 import sys, os, types
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 # ---- Mock DINOv2 before any import from pose2equip.models ----
 class _MockDINOOut:

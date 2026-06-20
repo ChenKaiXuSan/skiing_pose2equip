@@ -146,7 +146,7 @@ class UnityDataModule(LightningDataModule):
             num_workers=self._num_workers,
             pin_memory=False,  # 🚀 GPU内存传输加速（改自True）
             shuffle=False,
-            drop_last=True,
+            drop_last=False,
         )
 
         return val_data_loader
@@ -164,7 +164,7 @@ class UnityDataModule(LightningDataModule):
             num_workers=self._num_workers,
             pin_memory=False,  # 🚀 GPU内存传输加速（改自True）
             shuffle=False,
-            drop_last=True,
+            drop_last=False,
         )
 
         return test_data_loader

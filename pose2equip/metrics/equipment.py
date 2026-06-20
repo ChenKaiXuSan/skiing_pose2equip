@@ -1,6 +1,8 @@
 """Metrics for 3D equipment keypoint prediction."""
 
+from pathlib import Path
 from typing import Dict, Tuple
+import json
 
 import numpy as np
 
@@ -64,3 +66,50 @@ def evaluate_pose_metrics(pred_obj: np.ndarray, gt_obj: np.ndarray) -> Dict[str,
         "mpjpe_right_pole": float(right_pole_err),
     }
 
+
+
+def save_evaluation_report(
+    metrics: Dict[str, float],
+    total_samples: int,
+    output_dir: str | Path,
+    stem: str = "evaluation_metrics",
+) -> Dict[str, Path]:
+    """Save evaluation metrics as both human-readable text and JSON."""
+    output_dir = Path(output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    ski_avg = (metrics["mpjpe_left_ski"] + metrics["mpjpe_right_ski"]) / 2.0
+    pole_avg = (metrics["mpjpe_left_pole"] + metrics["mpjpe_right_pole"]) / 2.0
+    payload = {
+        "total_samples": int(total_samples),
+        **{k: float(v) for k, v in metrics.items()},
+        "mpjpe_avg_ski": float(ski_avg),
+        "mpjpe_avg_pole": float(pole_avg),
+    }
+
+    txt_path = output_dir / f"{stem}.txt"
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write("=" * 60 + "\n")
+        f.write("Equipment 3D Keypoint Prediction - Evaluation Report\n")
+        f.write("=" * 60 + "\n\n")
+        f.write(f"Total samples evaluated: {total_samples}\n\n")
+        f.write("Global Metrics:\n")
+        f.write("-" * 60 + "\n")
+        f.write(f"  MPJPE (Mean Per Joint Position Error):  {metrics['mpjpe']:.4f} mm\n")
+        f.write(f"  PA-MPJPE (Procrustes Aligned):         {metrics['pa_mpjpe']:.4f} mm\n\n")
+        f.write("Per-Object Metrics:\n")
+        f.write("-" * 60 + "\n")
+        f.write(f"  Left Ski MPJPE:   {metrics['mpjpe_left_ski']:.4f} mm\n")
+        f.write(f"  Right Ski MPJPE:  {metrics['mpjpe_right_ski']:.4f} mm\n")
+        f.write(f"  Left Pole MPJPE:  {metrics['mpjpe_left_pole']:.4f} mm\n")
+        f.write(f"  Right Pole MPJPE: {metrics['mpjpe_right_pole']:.4f} mm\n\n")
+        f.write(f"  Avg Ski Error:    {ski_avg:.4f} mm\n")
+        f.write(f"  Avg Pole Error:   {pole_avg:.4f} mm\n\n")
+        f.write("=" * 60 + "\n")
+
+    json_path = output_dir / f"{stem}.json"
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, sort_keys=True)
+        f.write("\n")
+
+    return {"txt": txt_path, "json": json_path}

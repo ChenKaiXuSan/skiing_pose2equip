@@ -17,17 +17,21 @@ segment has two 3D endpoints.
 ```text
 configs/
   pose2equip.yaml                 # Hydra training config
+  cross_validation.yaml           # Fold-generation config
 pegasus/
   train_pose2equip.sh             # PBS/Pegasus training script
 pose2equip/
+  data_index.py                   # Shared fold-index loading utilities
   dataloader/                     # Unity and Ski-PosePTZ dataset loaders
-  eval_data/                      # Visualization scripts
   losses/                         # Equipment losses
   metrics/                        # Equipment metrics
-  models/                         # Pose2Equip, ST-GCN, and 3D CNN models
+  models/                         # Focused model components and compatibility exports
+  tools/                          # Dataset checks and cross-validation tools
   trainer/                        # PyTorch Lightning modules
+  visualization/                  # Visualization scripts
   main.py                         # Hydra training entry point
   map_config.py                   # Keypoint and equipment mappings
+tests/                            # Unit tests and smoke checks
 requirements.txt
 environment.yaml
 ```
@@ -56,7 +60,7 @@ The default config expects Unity skiing data and precomputed fold mappings:
 
 ```yaml
 data.unity.root_path: /home/kaixu_chen/skiing/data/skiing_unity_dataset
-data.index_mapping_path: ${data.index_mapping}/use_layer_camera_filter_enabled/camera_pairs_by_action_folds
+data.index_mapping_path: ${data.index_mapping}/use_layer_camera_filter_disabled/camera_pairs_by_action_folds
 ```
 
 Each fold should be available as:
@@ -117,19 +121,19 @@ logs/train_unity/${model.backbone}/${date}/fold_${train.fold}
 Compile all Python files:
 
 ```bash
-python -m py_compile pose2equip/*.py pose2equip/*/*.py
+python -m py_compile pose2equip/*.py pose2equip/*/*.py pose2equip/*/*/*.py
 ```
 
 Run equipment geometry helper tests:
 
 ```bash
-python pose2equip/test_equipment_geometry.py
+python -m pytest tests/test_equipment_geometry.py -q
 ```
 
 Run the model forward-pass smoke test:
 
 ```bash
-python pose2equip/test_model_forward.py
+python tests/test_model_forward.py
 ```
 
 The forward test patches DINO with a mock when necessary, so it can validate
