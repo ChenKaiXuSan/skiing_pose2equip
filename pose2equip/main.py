@@ -173,6 +173,7 @@ def train(hparams: DictConfig, dataset_idx, fold: int):
         lit_module,
         data_module,
         ckpt_path=resolve_test_ckpt_path(hparams),
+        weights_only=False,
     )
 
 

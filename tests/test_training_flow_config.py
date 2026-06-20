@@ -1,11 +1,12 @@
 import unittest
+from unittest.mock import Mock, patch
 
 from pathlib import Path
 
 from omegaconf import OmegaConf
 
 from pose2equip.dataloader.data_loader import UnityDataModule
-from pose2equip.main import resolve_test_ckpt_path, resolve_trainer_device_kwargs
+from pose2equip.main import resolve_test_ckpt_path, resolve_trainer_device_kwargs, train
 
 
 class TrainingFlowConfigTest(unittest.TestCase):
@@ -72,6 +73,30 @@ class TrainingFlowConfigTest(unittest.TestCase):
             {"accelerator": "auto", "devices": "auto"},
         )
         self.assertEqual(resolve_test_ckpt_path(cfg), "best")
+
+    def test_train_tests_best_checkpoint_with_full_lightning_checkpoint_load(self):
+        cfg = self._minimal_cfg()
+        cfg.model = {"backbone": "stgcn"}
+        cfg.train.max_epochs = 1
+        cfg.log_path = "logs/unit"
+        cfg.pose2equip = {"hidden_dim": 256, "num_joints": 15, "num_equip_kpts": 8}
+
+        trainer = Mock()
+        with (
+            patch("pose2equip.main.UnityDataModule", return_value=Mock()),
+            patch("pose2equip.main.TensorBoardLogger", return_value=Mock()),
+            patch("pose2equip.main.CSVLogger", return_value=Mock()),
+            patch("pose2equip.main.TQDMProgressBar", return_value=Mock()),
+            patch("pose2equip.main.RichModelSummary", return_value=Mock()),
+            patch("pose2equip.main.ModelCheckpoint", return_value=Mock()),
+            patch("pose2equip.main.LearningRateMonitor", return_value=Mock()),
+            patch("pose2equip.main.Trainer", return_value=trainer),
+            patch("pose2equip.trainer.train_stgcn.Pose2Equip_STGCN_Trainer", return_value=Mock()),
+        ):
+            train(cfg, {"train": [], "val": [], "test": []}, fold=0)
+
+        trainer.test.assert_called_once()
+        self.assertFalse(trainer.test.call_args.kwargs["weights_only"])
 
 
 if __name__ == "__main__":
