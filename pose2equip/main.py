@@ -33,7 +33,7 @@ from pytorch_lightning.callbacks import (
     RichModelSummary,
     TQDMProgressBar,
 )
-from pytorch_lightning.loggers import TensorBoardLogger
+from pytorch_lightning.loggers import TensorBoardLogger, CSVLogger
 
 from pose2equip.dataloader.data_loader import UnityDataModule
 from pose2equip.data_index import (
@@ -119,6 +119,11 @@ def train(hparams: DictConfig, dataset_idx, fold: int):
         name="fold_" + str(fold),  # here should be str type.
     )
 
+    csv_logger = CSVLogger(
+        save_dir=os.path.join(hparams.log_path, "csv_logs"),
+        name="fold_" + str(fold),  # here should be str type.
+    )
+
     # some callbacks
     progress_bar = TQDMProgressBar(refresh_rate=10)
     rich_model_summary = RichModelSummary(max_depth=2)
@@ -146,7 +151,7 @@ def train(hparams: DictConfig, dataset_idx, fold: int):
     trainer = Trainer(
         **resolve_trainer_device_kwargs(hparams),
         max_epochs=hparams.train.max_epochs,
-        logger=[tb_logger],
+        logger=[tb_logger, csv_logger],
         check_val_every_n_epoch=1,
         callbacks=[
             progress_bar,

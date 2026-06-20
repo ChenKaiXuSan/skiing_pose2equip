@@ -33,9 +33,13 @@ Options:
   --dry-run     Print commands without executing them
   --smoke       Apply 1-batch smoke overrides to selected experiments
   -h, --help    Show this help
+  --            Treat following arguments as extra Hydra overrides
+
+Extra Hydra overrides:
+  Any key=value argument is appended to every experiment command.
 
 Environment overrides:
-  CONDA_ENV=dual2pose
+  CONDA_ENV=dual2pose     # env name, or /absolute/path/to/env
   FOLD=0
   GPU=0              # legacy single-GPU shorthand; GPUS takes precedence
   GPUS=0,1           # comma-separated GPU pool for parallel jobs
@@ -52,6 +56,7 @@ Examples:
   GPUS=0,1 FOLD=1 bash scripts/run_experiment_matrix.sh core
   GPUS=1 bash scripts/run_experiment_matrix.sh E02
   bash scripts/run_experiment_matrix.sh --smoke E08
+  bash scripts/run_experiment_matrix.sh all data.unity.root_path=/path/to/data
 
 Experiment IDs:
   E01 stgcn + unity
@@ -117,8 +122,15 @@ run_experiment() {
   source="$(source_for "${exp_id}")"
   frames="$(frames_for "${exp_id}")"
 
+  local conda_cmd=(conda run)
+  if [[ "${CONDA_ENV}" == /* ]]; then
+    conda_cmd+=(-p "${CONDA_ENV}")
+  else
+    conda_cmd+=(-n "${CONDA_ENV}")
+  fi
+
   local cmd=(
-    conda run -n "${CONDA_ENV}" python -m pose2equip.main
+    "${conda_cmd[@]}" python -m pose2equip.main
     "model.backbone=${backbone}"
     "data.human_3d_source=${source}"
     "data.load_frames=${frames}"
@@ -151,6 +163,10 @@ run_experiment() {
     )
   fi
 
+  if [[ "${#EXTRA_OVERRIDES[@]}" -gt 0 ]]; then
+    cmd+=("${EXTRA_OVERRIDES[@]}")
+  fi
+
   echo "================================================================"
   echo "Running ${exp_id}: ${backbone} + ${source} (frames=${frames}, visible_gpu=${visible_gpu})"
   echo "================================================================"
@@ -164,11 +180,20 @@ run_experiment() {
 }
 
 args=()
+EXTRA_OVERRIDES=()
+parse_overrides=0
 for arg in "$@"; do
+  if [[ "${parse_overrides}" == "1" ]]; then
+    EXTRA_OVERRIDES+=("$arg")
+    continue
+  fi
+
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
     --smoke) SMOKE=1 ;;
     -h|--help) usage; exit 0 ;;
+    --) parse_overrides=1 ;;
+    *=*) EXTRA_OVERRIDES+=("$arg") ;;
     *) args+=("$arg") ;;
   esac
 done
@@ -179,7 +204,10 @@ fi
 
 expanded=()
 for target in "${args[@]}"; do
-  read -r -a ids <<< "$(expand_target "${target}")"
+  if ! expanded_text="$(expand_target "${target}")"; then
+    exit 2
+  fi
+  read -r -a ids <<< "${expanded_text}"
   expanded+=("${ids[@]}")
   if [[ "${target}" == "smoke" ]]; then
     SMOKE=1
