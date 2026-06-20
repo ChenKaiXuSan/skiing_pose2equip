@@ -8,7 +8,8 @@
 #PBS -e logs/pegasus/pose2equip/train_${PBS_SUBREQNO}_err.log
 
 # === 1. 環境準備 ===
-PROJECT_ROOT="/work/SKIING/chenkaixu/code/Ski3DPose_PyTorch"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
 cd "${PROJECT_ROOT}" || exit 1
 
 mkdir -p logs/pegasus/pose2equip
@@ -28,6 +29,7 @@ MODEL_BACKBONE="pose2equip"
 
 NUM_WORKERS=24
 BATCH_SIZE=4
+MAX_EPOCHS=${MAX_EPOCHS:-50}
 
 # fold assignment:
 # - PBS array mode: use PBS_ARRAY_INDEX
@@ -43,15 +45,15 @@ echo "Backbone: ${MODEL_BACKBONE}"
 echo "Fold: ${FOLD_ID}"
 
 # === 3. 执行训练（每个作业只跑一个 fold） ===
-python -m project.main \
+python -m pose2equip.main \
     data.unity.root_path=${DATA_ROOT} \
     data.index_mapping=${INDEX_MAPPING_DIR} \
     data.index_mapping_path=${INDEX_MAPPING_PATH} \
     train.gpu=0 \
+    train.max_epochs=${MAX_EPOCHS} \
     data.num_workers=${NUM_WORKERS} \
     data.batch_size=${BATCH_SIZE} \
     model.backbone=${MODEL_BACKBONE} \
-    train.fold=${FOLD_ID}\
-    train.view="single"
+    train.fold=${FOLD_ID}
 
 echo "🏁 Train job finished at: $(date)"

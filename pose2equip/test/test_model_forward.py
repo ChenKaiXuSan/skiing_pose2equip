@@ -2,8 +2,9 @@
 """Quick forward-pass test for all models in pose2equip_net."""
 
 import torch
-import sys, os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import sys, os, types
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 # ---- Mock DINOv2 before any import from pose2equip.models ----
 class _MockDINOOut:
@@ -26,39 +27,20 @@ class _MockDINO(torch.nn.Module):
         feats = torch.randn(B_, N, 256, device=device)
         return _MockDINOOut(torch.cat([cls_tok, feats], dim=1))
 
-# Patch transformers.AutoModel so DinoPatchEncoder gets the mock on import
-import importlib.util
-_spec = importlib.util.find_spec("transformers")
-if _spec is not None:
-    # transformers installed but DINOv3 model may not be — intercept AutoModel.from_pretrained
-    transformers_mod = importlib.util.module_from_spec(_spec)
-    _spec.loader.exec_module(transformers_mod)
-    real_from_pretrained = transformers_mod.AutoModel.from_pretrained
+# Patch transformers.AutoModel before pose2equip imports. Always use the mock to
+# avoid network/model-cache dependencies in this smoke test.
+transformers_mod = types.ModuleType("transformers")
 
-    class MockAutoModel:
-        @classmethod
-        def from_pretrained(cls, model_name):
-            # Use real DINOv2 if available, else fall back to mock
-            try:
-                return real_from_pretrained("facebook/dinov2-base")
-            except Exception:
-                pass
-            print(f"  [mock] Loading {model_name} -> falling back to MockDINO")
-            return _MockDINO(model_name)
 
-    transformers_mod.AutoModel = MockAutoModel
-    sys.modules["transformers"] = transformers_mod
-else:
-    # transformers not installed at all — fake it before pose2equip imports
-    import types
-    transformers_mod = types.ModuleType("transformers")
-    class FakeAutoModel:
-        @classmethod
-        def from_pretrained(cls, model_name):
-            print(f"  [mock] No transformers installed -> MockDINO for {model_name}")
-            return _MockDINO(model_name)
-    transformers_mod.AutoModel = FakeAutoModel
-    sys.modules["transformers"] = transformers_mod
+class FakeAutoModel:
+    @classmethod
+    def from_pretrained(cls, model_name):
+        print(f"  [mock] Loading {model_name} -> MockDINO")
+        return _MockDINO(model_name)
+
+
+transformers_mod.AutoModel = FakeAutoModel
+sys.modules["transformers"] = transformers_mod
 
 from pose2equip.models.pose2equip_net import (
     Pose2EquipNetImproved,

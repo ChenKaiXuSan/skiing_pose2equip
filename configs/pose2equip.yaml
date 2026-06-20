@@ -42,7 +42,7 @@ data:
 
   index_mapping: ${data.unity.root_path}/index_mapping # precomputed index mapping directory
   # index_mapping_file: camera_pairs_by_action.json # precomputed index mapping json file name
-  index_mapping_path: ${data.index_mapping}/use_layer_camera_filter_enabled/camera_pairs_by_action_folds # precomputed index mapping json file path
+  index_mapping_path: ${data.index_mapping}/use_layer_camera_filter_disabled/camera_pairs_by_action_folds # precomputed index mapping json file path
   sam3d_export_path: ${data.unity.root_path}/sam3d_body_results/modalities_from_sam3d # exported kpt2d/kpt3d from SAM3D
 
   img_size: 224
@@ -66,6 +66,12 @@ train:
 
   gpu: 0 # choices=[0, 1], help='the gpu number whicht to train'
   fold: 0 # the fold number for cross validation
+
+trainer:
+  limit_train_batches: null
+  limit_val_batches: null
+  limit_test_batches: null
+  num_sanity_val_steps: 2
 
 # Used only when model.backbone=pose2equip
 pose2equip:

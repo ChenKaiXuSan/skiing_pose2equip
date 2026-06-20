@@ -51,6 +51,23 @@ from .trainer.train_3dcnn import Res3DCNNTrainer
 
 logger = logging.getLogger(__name__)
 
+def _remap_unity_dataset_paths(value, unity_root: Path):
+    """Remap serialized Unity dataset paths to the configured local root."""
+    dataset_dirname = unity_root.name
+    if isinstance(value, str):
+        marker = f"/{dataset_dirname}/"
+        if marker in value:
+            suffix = value.split(marker, 1)[1]
+            return str(unity_root / suffix)
+        if value.endswith(f"/{dataset_dirname}"):
+            return str(unity_root)
+        return value
+    if isinstance(value, dict):
+        return {k: _remap_unity_dataset_paths(v, unity_root) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_remap_unity_dataset_paths(v, unity_root) for v in value]
+    return value
+
 
 def load_fold_dataset_idx_from_fold_json(
     config: DictConfig, fold: int
@@ -80,6 +97,9 @@ def load_fold_dataset_idx_from_fold_json(
     for split in ["train", "val", "test"]:
         src_list = fold_data.get(split, [])
         for item in src_list:
+            item = _remap_unity_dataset_paths(
+                item, Path(str(config.data.unity.root_path))
+            )
             dataset_idx[split].append(UnityDataConfig.from_dict(item))
 
     logger.info(
@@ -172,9 +192,10 @@ def train(hparams: DictConfig, dataset_idx, fold: int):
             # early_stopping,
             lr_monitor,
         ],
-        # limit_train_batches=10,
-        # limit_val_batches=10,
-        # limit_test_batches=10,
+        limit_train_batches=getattr(hparams.trainer, "limit_train_batches", None),
+        limit_val_batches=getattr(hparams.trainer, "limit_val_batches", None),
+        limit_test_batches=getattr(hparams.trainer, "limit_test_batches", None),
+        num_sanity_val_steps=int(getattr(hparams.trainer, "num_sanity_val_steps", 2)),
     )
 
     trainer.fit(classification_module, data_module)
@@ -183,7 +204,7 @@ def train(hparams: DictConfig, dataset_idx, fold: int):
     trainer.test(
         classification_module,
         data_module,
-        ckpt_path="best",
+        ckpt_path=None,
     )
 
 
