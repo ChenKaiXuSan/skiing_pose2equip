@@ -100,8 +100,7 @@ class LabeledUnityDataset(Dataset):
         raise TypeError(f"Unsupported index item type: {type(item)}")
 
     @staticmethod
-    def _load_frames_dir(path: Path) -> torch.Tensor:
-        """Load image sequence directory into (T,C,H,W)."""
+    def _load_cv2():
         try:
             import cv2
         except ImportError as exc:
@@ -109,6 +108,12 @@ class LabeledUnityDataset(Dataset):
                 "cv2 is required only when loading RGB frames. Install opencv-python "
                 "or set data.load_frames=false for skeleton-only experiments."
             ) from exc
+        return cv2
+
+    @staticmethod
+    def _load_frames_dir(path: Path) -> torch.Tensor:
+        """Load image sequence directory into (T,C,H,W)."""
+        cv2 = LabeledUnityDataset._load_cv2()
 
         if not path.exists() or not path.is_dir():
             raise FileNotFoundError(f"Frame directory not found: {path}")
@@ -623,6 +628,7 @@ class LabeledUnityDataset(Dataset):
         selected_common_idx = [common_idx[int(i)] for i in temporal_sel.tolist()]
 
         cam1_frames: List[torch.Tensor] = []
+        cv2 = self._load_cv2() if self._load_frames else None
         for idx in selected_common_idx:
             if self._load_frames:
                 img1 = cv2.imread(str(cam1_frames_map[idx]), cv2.IMREAD_COLOR)

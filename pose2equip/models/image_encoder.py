@@ -5,6 +5,38 @@ import torch.nn as nn
 from transformers import AutoModel
 
 
+def _disable_broken_torchaudio_for_transformers():
+    """Prevent broken torchaudio binaries from blocking vision-only models."""
+    try:
+        __import__("torchaudio")
+        return False
+    except ImportError:
+        return False
+    except OSError:
+        pass
+
+    import importlib
+    import sys
+
+    transformers_utils = sys.modules.get("transformers.utils")
+    import_utils = sys.modules.get("transformers.utils.import_utils")
+
+    try:
+        if transformers_utils is None:
+            transformers_utils = importlib.import_module("transformers.utils")
+        if import_utils is None:
+            import_utils = importlib.import_module("transformers.utils.import_utils")
+    except Exception:
+        return False
+
+    def _unavailable():
+        return False
+
+    import_utils.is_torchaudio_available = _unavailable
+    transformers_utils.is_torchaudio_available = _unavailable
+    return True
+
+
 class DinoPatchEncoder(nn.Module):
     def __init__(
         self,
@@ -14,6 +46,7 @@ class DinoPatchEncoder(nn.Module):
         mock=False,
     ):
         super().__init__()
+        _disable_broken_torchaudio_for_transformers()
         self.encoder = AutoModel.from_pretrained(model_name)
         self.freeze = freeze
         self.encoder.requires_grad_(not freeze)
